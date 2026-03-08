@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/creack/pty"
 	"io"
 	"os"
 	"os/exec"
@@ -84,28 +85,25 @@ Environment:
 func runAndFilter(path string, args []string, out, errOut *os.File, state State) error {
 	cmd := exec.Command(path, args...)
 	cmd.Env = os.Environ()
-	cmd.Stdin = os.Stdin
-	cmd.Stderr = errOut
 
-	stdout, err := cmd.StdoutPipe()
+	// Start the command with a pty to force line-buffering
+	f, err := pty.Start(cmd)
 	if err != nil {
 		return err
 	}
+	defer func() { _ = f.Close() }()
 
-	if err := cmd.Start(); err != nil {
-		return err
-	}
+	// Forward Stdin to the pty so interactive prompts work
+	go func() { _, _ = io.Copy(f, os.Stdin) }()
 
-	streamErr := streamOutput(stdout, out, state)
+	// Stream the combined Stdout/Stderr through the obscurer
+	streamErr := streamOutput(f, out, state)
 	waitErr := cmd.Wait()
 
 	if streamErr != nil {
 		return streamErr
 	}
-	if waitErr != nil {
-		return waitErr
-	}
-	return nil
+	return waitErr
 }
 
 func streamOutput(r io.Reader, w io.Writer, state State) error {

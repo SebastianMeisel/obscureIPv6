@@ -54,13 +54,16 @@ func StreamObscure(r io.Reader, w io.Writer, state State) error {
 		return err
 	}
 
-	buf := make([]byte, 32*1024)
-	carry := ""
+	buf := make([]byte, 1024) // Smaller buffer for more frequent flushes
+	var carry string
 
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
 			chunk := carry + string(buf[:n])
+
+			// We only want to process up to the last non-IPv6ish character
+			// to ensure we don't break a potential IPv6 address in half.
 			flush, rest := splitStreamingChunk(chunk)
 			carry = rest
 
@@ -72,6 +75,7 @@ func StreamObscure(r io.Reader, w io.Writer, state State) error {
 		}
 
 		if err == io.EOF {
+			// Final flush of remaining carry
 			if carry != "" {
 				if _, writeErr := io.WriteString(w, ObscureIPv6Text(carry, state)); writeErr != nil {
 					return writeErr
@@ -85,7 +89,14 @@ func StreamObscure(r io.Reader, w io.Writer, state State) error {
 	}
 }
 
-func splitStreamingChunk(s string) (flush string, carry string) {
+func splitStreamingChunk(s string) (string, string) {
+	// If the chunk is very long, force a flush even if it looks like a partial token.
+	// This prevents the "carry" buffer from growing indefinitely.
+	if len(s) > 2048 {
+		return s, ""
+	}
+
+	// Otherwise, keep the existing logic:
 	for i := len(s) - 1; i >= 0; i-- {
 		if !isIPv6ishChar(s[i]) {
 			return s[:i+1], s[i+1:]
@@ -105,9 +116,9 @@ func isIPv6ishChar(c byte) bool {
 	case c >= 'A' && c <= 'F':
 		return true
 	case c >= 'g' && c <= 'z':
-		return true
+		return false
 	case c >= 'G' && c <= 'Z':
-		return true
+		return false
 	}
 
 	switch c {

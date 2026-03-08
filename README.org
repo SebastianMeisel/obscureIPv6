@@ -1,0 +1,102 @@
+#+TITLE: obscureIPv6
+#+AUTHOR: OpenAI
+#+OPTIONS: toc:nil num:nil
+
+* obscureIPv6
+
+~obscureIPv6~ is a small Go command line tool that detects the local global
+IPv6 prefix and rewrites matching IPv6 addresses in command output so the
+network prefix is obscured while the host-specific part remains readable.
+
+It is intended for cases where you want to share command output, logs, or
+traces without exposing your real public IPv6 prefix.
+
+* What it does
+
+The tool:
+
+- detects a preferred network interface
+- extracts the first usable global IPv6 prefix from that interface
+- rewrites matching IPv6 addresses in streamed text
+- can run selected commands and filter their output directly
+
+Matching addresses keep their fourth hextet and interface identifier, while the
+first three hextets are replaced with fixed placeholder values.
+
+* Commands
+
+** =obscureIPv6 info=
+
+Prints the detected interface, the detected prefix, and the obscured prefix.
+
+** =obscureIPv6 filter=
+
+Reads from standard input and writes filtered output to standard output.
+
+Example:
+
+#+begin_src bash
+cat some.log | obscureIPv6 filter
+#+end_src
+
+** =obscureIPv6 ip [args...]=
+
+Runs =ip= with sensible defaults and filters matching IPv6 addresses from the
+output.
+
+Example:
+
+#+begin_src bash
+obscureIPv6 ip addr
+#+end_src
+
+** =obscureIPv6 tracepath [args...]=
+
+Runs =tracepath= and filters matching IPv6 addresses from the output.
+
+Example:
+
+#+begin_src bash
+obscureIPv6 tracepath -6 -n google.com
+#+end_src
+
+* Build
+
+#+begin_src bash
+go build
+#+end_src
+
+This produces the =obscureIPv6= binary in the current directory.
+
+* Runtime notes
+
+For =tracepath= to work reliably with the tool in interactive or streamed use
+cases, =unbuffer= from the =expect= package may be required on your system.
+That is especially relevant when =tracepath= would otherwise buffer output in a
+way that interferes with live rewriting.
+
+Example:
+
+#+begin_src bash
+unbuffer tracepath -6 -n google.com | obscureIPv6 filter
+#+end_src
+
+The current Go implementation also uses a pseudo-terminal approach for wrapped
+commands, but keeping =unbuffer= installed is still useful for direct shell
+pipelines and troubleshooting.
+
+* Environment
+
+If the environment variable =dontobscureIPv6= is set to a non-empty value,
+obscuring is disabled.
+
+Example:
+
+#+begin_src bash
+dontobscureIPv6=1 obscureIPv6 ip addr
+#+end_src
+
+* License
+
+This project is licensed under the GNU General Public License, version 2
+(GPL-2.0).
