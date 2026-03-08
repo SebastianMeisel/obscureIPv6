@@ -1,10 +1,9 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 )
@@ -69,8 +68,7 @@ func main() {
 	}
 }
 
-// printUsage writes a short usage text.
-func printUsage(w *os.File) {
+func printUsage(w io.Writer) {
 	fmt.Fprintln(w, `Usage:
   obscureipv6 info
   obscureipv6 filter
@@ -86,48 +84,42 @@ Environment:
 func runAndFilter(path string, args []string, out, errOut *os.File, state State) error {
 	cmd := exec.Command(path, args...)
 	cmd.Env = os.Environ()
-
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
+	cmd.Stdin = os.Stdin
 	cmd.Stderr = errOut
 
-	err := cmd.Run()
-
-	text := stdout.String()
-	if ObscuringEnabled() {
-		text = ObscureIPv6Text(text, state)
-	}
-
-	if _, writeErr := out.WriteString(text); writeErr != nil {
-		return writeErr
-	}
-
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	streamErr := streamOutput(stdout, out, state)
+	waitErr := cmd.Wait()
+
+	if streamErr != nil {
+		return streamErr
+	}
+	if waitErr != nil {
+		return waitErr
 	}
 	return nil
 }
 
-// filterStdin reads stdin, obscures matching IPv6 addresses if enabled, and
-// writes the result to out.
-func filterStdin(out *os.File, state State) error {
-	var buf bytes.Buffer
-	reader := bufio.NewReader(os.Stdin)
-
-	if _, err := buf.ReadFrom(reader); err != nil {
+func streamOutput(r io.Reader, w io.Writer, state State) error {
+	if !ObscuringEnabled() {
+		_, err := io.Copy(w, r)
 		return err
 	}
-
-	text := buf.String()
-	if ObscuringEnabled() {
-		text = ObscureIPv6Text(text, state)
-	}
-
-	_, err := out.WriteString(text)
-	return err
+	return StreamObscure(r, w, state)
 }
 
-// exitCodeFromErr preserves the wrapped command's exit status if possible.
+func filterStdin(out io.Writer, state State) error {
+	return streamOutput(os.Stdin, out, state)
+}
+
 func exitCodeFromErr(err error) int {
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {

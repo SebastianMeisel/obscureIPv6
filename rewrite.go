@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"net"
 	"strings"
 )
@@ -13,7 +14,7 @@ import (
 //
 // becomes:
 //
-//	3fff:0abc:0123:0456
+//	3fff:0abc:0def:0456
 func ObscuredPrefixString(parts [4]string) string {
 	return strings.Join([]string{"3fff", "0abc", "0def", parts[3]}, ":")
 }
@@ -44,6 +45,53 @@ func ObscureIPv6Text(s string, state State) string {
 	}
 
 	return out.String()
+}
+
+// StreamObscure rewrites matching IPv6 addresses while streaming from r to w.
+func StreamObscure(r io.Reader, w io.Writer, state State) error {
+	if !ObscuringEnabled() || !state.HasPrefix() {
+		_, err := io.Copy(w, r)
+		return err
+	}
+
+	buf := make([]byte, 32*1024)
+	carry := ""
+
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			chunk := carry + string(buf[:n])
+			flush, rest := splitStreamingChunk(chunk)
+			carry = rest
+
+			if flush != "" {
+				if _, writeErr := io.WriteString(w, ObscureIPv6Text(flush, state)); writeErr != nil {
+					return writeErr
+				}
+			}
+		}
+
+		if err == io.EOF {
+			if carry != "" {
+				if _, writeErr := io.WriteString(w, ObscureIPv6Text(carry, state)); writeErr != nil {
+					return writeErr
+				}
+			}
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+}
+
+func splitStreamingChunk(s string) (flush string, carry string) {
+	for i := len(s) - 1; i >= 0; i-- {
+		if !isIPv6ishChar(s[i]) {
+			return s[:i+1], s[i+1:]
+		}
+	}
+	return "", s
 }
 
 // isIPv6ishChar identifies characters that may occur in an IPv6-containing
@@ -210,7 +258,7 @@ func MatchesPrefix(ip net.IP, prefixParts [4]string) bool {
 	return true
 }
 
-// RenderObscuredIPv6 rewrites the first two hextets, preserves the 3rd and 4th,
+// RenderObscuredIPv6 rewrites the first three hextets, preserves the 4th,
 // and keeps the rest of the address unchanged.
 func RenderObscuredIPv6(ip net.IP, cidr string, zone string, bracket bool) string {
 	expanded := ExpandIPv6(ip)
