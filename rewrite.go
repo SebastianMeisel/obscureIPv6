@@ -137,84 +137,84 @@ func rewriteIPv6ishToken(token string, state State) string {
 		return token
 	}
 
-	type candidate struct {
-		start   int
-		end     int
-		ip      net.IP
-		cidr    string
-		zone    string
-		bracket bool
-	}
-
-	var candidates []candidate
-
-	for start := 0; start < len(token); start++ {
-		for end := start + 2; end <= len(token); end++ {
-			sub := token[start:end]
-
-			ip, cidr, zone, bracket, ok := parseEmbeddedIPv6(sub)
-			if !ok {
-				continue
-			}
-			if !IsGlobalishIPv6(ip) {
-				continue
-			}
-			if !MatchesPrefix(ip, state.PrefixParts) {
-				continue
-			}
-
-			candidates = append(candidates, candidate{
-				start:   start,
-				end:     end,
-				ip:      ip,
-				cidr:    cidr,
-				zone:    zone,
-				bracket: bracket,
-			})
-		}
-	}
-
-	if len(candidates) == 0 {
-		return token
-	}
-
-	// Prefer longer matches first so full forms like [addr] or addr/64 win over
-	// smaller embedded substrings.
-	sort.Slice(candidates, func(i, j int) bool {
-		li := candidates[i].end - candidates[i].start
-		lj := candidates[j].end - candidates[j].start
-		if li != lj {
-			return li > lj
-		}
-		return candidates[i].start < candidates[j].start
-	})
 	var out strings.Builder
-	last := 0
+	out.Grow(len(token))
 
-	for len(candidates) > 0 {
-		c := candidates[0]
-		candidates = candidates[1:]
-
-		if c.start < last {
+	for i := 0; i < len(token); {
+		if !canStartIPv6(token[i]) {
+			out.WriteByte(token[i])
+			i++
 			continue
 		}
 
-		out.WriteString(token[last:c.start])
-		out.WriteString(RenderObscuredIPv6(c.ip, c.cidr, c.zone, c.bracket))
-		last = c.end
-
-		filtered := candidates[:0]
-		for _, other := range candidates {
-			if other.start < last {
-				continue
-			}
-			filtered = append(filtered, other)
+		if matched, end, rendered := longestMatchingIPv6At(token, i, state); matched {
+			out.WriteString(rendered)
+			i = end
+			continue
 		}
-		candidates = filtered
+
+		out.WriteByte(token[i])
+		i++
 	}
 
-	out.WriteString(token[last:])
 	return out.String()
+}
+
+func canStartIPv6(c byte) bool {
+	return c == '[' || isHexDigit(c)
+}
+
+func isHexDigit(c byte) bool {
+	switch {
+	case c >= '0' && c <= '9':
+		return true
+	case c >= 'a' && c <= 'f':
+		return true
+	case c >= 'A' && c <= 'F':
+		return true
+	default:
+		return false
+	}
+}
+
+func longestMatchingIPv6At(token string, start int, state State) (matched bool, end int, rendered string) {
+	if start >= len(token) {
+		return false, 0, ""
+	}
+
+	maxEnd := scanIPv6CandidateEnd(token, start)
+	if maxEnd-start < 2 {
+		return false, 0, ""
+	}
+
+	for end = maxEnd; end > start+1; end-- {
+		sub := token[start:end]
+		ip, cidr, zone, bracket, ok := parseEmbeddedIPv6(sub)
+		if !ok {
+			continue
+		}
+		if !IsGlobalishIPv6(ip) || !MatchesPrefix(ip, state.PrefixParts) {
+			continue
+		}
+		return true, end, RenderObscuredIPv6(ip, cidr, zone, bracket)
+	}
+
+	return false, 0, ""
+}
+
+func scanIPv6CandidateEnd(token string, start int) int {
+	end := start
+	for end < len(token) {
+		c := token[end]
+		if c == '-' || c == '_' {
+			break
+		}
+		if !isIPv6ishChar(c) {
+			break
+		}
+		end++
+	}
+	return end
 }
 
 // parseEmbeddedIPv6 parses a substring that may represent:
