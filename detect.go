@@ -24,7 +24,7 @@ type State struct {
 }
 
 // HasPrefix reports whether prefix detection succeeded.
-func (s State) HasPrefix() bool {
+func (s *State) HasPrefix() bool {
 	return s.Prefix != ""
 }
 
