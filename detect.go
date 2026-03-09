@@ -64,6 +64,7 @@ func PickIPv6Dev() (string, error) {
 
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagUp == 0 {
+
 			continue
 		}
 

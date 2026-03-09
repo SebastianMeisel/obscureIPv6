@@ -133,3 +133,24 @@ func TestLeavesPlainTextAlone(t *testing.T) {
 		t.Fatalf("got %q, want unchanged %q", got, in)
 	}
 }
+
+func TestObscureIPv6Text(t *testing.T) {
+	tests := []struct {
+		name string // description of this test case
+		// Named input parameters for target function.
+		s     string
+		state State
+		want  string
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ObscureIPv6Text(tt.s, tt.state)
+			// TODO: update the condition below to compare got with tt.want.
+			if true {
+				t.Errorf("ObscureIPv6Text() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

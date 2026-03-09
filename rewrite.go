@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"net"
+	"sort"
 	"strings"
 )
 
@@ -179,17 +180,14 @@ func rewriteIPv6ishToken(token string, state State) string {
 
 	// Prefer longer matches first so full forms like [addr] or addr/64 win over
 	// smaller embedded substrings.
-	for i := 0; i < len(candidates)-1; i++ {
-		for j := i + 1; j < len(candidates); j++ {
-			li := candidates[i].end - candidates[i].start
-			lj := candidates[j].end - candidates[j].start
-
-			if lj > li || (lj == li && candidates[j].start < candidates[i].start) {
-				candidates[i], candidates[j] = candidates[j], candidates[i]
-			}
+	sort.Slice(candidates, func(i, j int) bool {
+		li := candidates[i].end - candidates[i].start
+		lj := candidates[j].end - candidates[j].start
+		if li != lj {
+			return li > lj
 		}
-	}
-
+		return candidates[i].start < candidates[j].start
+	})
 	var out strings.Builder
 	last := 0
 
@@ -256,14 +254,24 @@ func parseEmbeddedIPv6(s string) (ip net.IP, cidr string, zone string, bracket b
 // given prefix parts.
 func MatchesPrefix(ip net.IP, prefixParts [4]string) bool {
 	expanded := ExpandIPv6(ip)
-	parts := strings.Split(expanded, ":")
-	if len(parts) != 8 {
+	if expanded == "" {
 		return false
 	}
 
-	for i := 0; i < 4; i++ {
-		if strings.ToLower(parts[i]) != strings.ToLower(prefixParts[i]) {
+	start := 0
+	for i, prefixPart := range prefixParts {
+		end := start + 4
+		if end > len(expanded) {
 			return false
+		}
+		if !strings.EqualFold(expanded[start:end], prefixPart) {
+			return false
+		}
+		if i < 3 {
+			if end >= len(expanded) || expanded[end] != ':' {
+				return false
+			}
+			start = end + 1
 		}
 	}
 	return true
